@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Vaani — Live Captions</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;600&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <style>
+    :root {
+      --bg: #0a0710;
+      --surface: #110d1a;
+      --surface2: #1a1428;
+      --gold: #c9a84c;
+      --gold-dim: #7a6030;
+      --purple: #6b3fa0;
+      --purple-light: #9b6fd4;
+      --text: #e8e0f0;
+      --muted: #6b6080;
+      --border: rgba(201,168,76,0.15);
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* Background texture */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(107,63,160,0.25) 0%, transparent 60%),
+        radial-gradient(ellipse 40% 40% at 80% 80%, rgba(201,168,76,0.08) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Subtle grid */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(201,168,76,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(201,168,76,0.03) 1px, transparent 1px);
+      background-size: 48px 48px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      padding: 0 24px 40px;
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 24px 0 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, var(--purple), var(--gold-dim));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    .logo-text {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 26px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      background: linear-gradient(135deg, var(--gold), var(--purple-light));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .logo-tagline {
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      margin-top: 1px;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Status indicator */
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 12px;
+      color: var(--muted);
+      font-family: 'DM Sans', sans-serif;
+    }
+
+    .status.live { color: #4ade80; border-color: rgba(74,222,128,0.2); }
+    .status.live .dot { background: #4ade80; }
+
+    .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+
+    .dot.pulse {
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    /* Mute button */
+    .mute-btn {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 16px;
+      color: var(--text);
+      font-size: 12px;
+      font-family: 'DM Sans', sans-serif;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      transition: all 0.2s;
+      letter-spacing: 0.03em;
+    }
+
+    .mute-btn:hover {
+      background: var(--surface2);
+      border-color: rgba(201,168,76,0.3);
+    }
+
+    .mute-btn.muted {
+      background: rgba(201,168,76,0.1);
+      border-color: rgba(201,168,76,0.4);
+      color: var(--gold);
+    }
+
+    /* Speaker section */
+    .speaker-section {
+      padding: 20px 0 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .speaker-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+    }
+
+    .speaker-name {
+      font-size: 13px;
+      color: var(--gold);
+      font-weight: 500;
+      background: rgba(201,168,76,0.08);
+      border: 1px solid rgba(201,168,76,0.2);
+      border-radius: 12px;
+      padding: 3px 12px;
+    }
+
+    /* Main caption area */
+    .caption-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 20px 0;
+      gap: 16px;
+    }
+
+    /* History */
+    .history {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 280px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .history::-webkit-scrollbar { width: 3px; }
+    .history::-webkit-scrollbar-track { background: transparent; }
+    .history::-webkit-scrollbar-thumb { background: var(--gold-dim); border-radius: 2px; }
+
+    .history-item {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      opacity: 0.45;
+      transition: opacity 0.2s;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .history-item:hover { opacity: 0.7; }
+
+    .history-speaker {
+      font-size: 10px;
+      color: var(--gold-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      padding-left: 2px;
+    }
+
+    .history-text {
+      font-size: 16px;
+      color: var(--text);
+      line-height: 1.5;
+      padding: 10px 16px;
+      background: var(--surface);
+      border-left: 2px solid var(--gold-dim);
+      border-radius: 0 8px 8px 0;
+      font-weight: 300;
+    }
+
+    /* Divider */
+    .divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border), transparent);
+      margin: 4px 0;
+    }
+
+    /* Live caption box */
+    .caption-live {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 32px;
+      min-height: 120px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .caption-live::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--purple), var(--gold), var(--purple));
+      background-size: 200% 100%;
+      animation: shimmer 3s linear infinite;
+    }
+
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    .live-label {
+      font-size: 10px;
+      color: var(--purple-light);
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #caption-text {
+      font-family: 'Cormorant Garamond', serif;
+      font-size: 32px;
+      font-weight: 400;
+      line-height: 1.4;
+      color: var(--text);
+      letter-spacing: 0.01em;
+      min-height: 48px;
+    }
+
+    #caption-text.empty {
+      color: var(--muted);
+      font-style: italic;
+      font-size: 24px;
+      font-weight: 300;
+    }
+
+    /* Muted overlay */
+    .muted-overlay {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(10,7,16,0.85);
+      border-radius: 16px;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .muted-overlay.show { display: flex; }
+
+    .muted-icon { font-size: 32px; }
+    .muted-text {
+      font-size: 13px;
+      color: var(--gold);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    /* Footer */
+    footer {
+      padding-top: 20px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .footer-text {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+    }
+
+    .footer-text span {
+      color: var(--gold-dim);
+    }
+
+    .clear-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 5px 14px;
+      color: var(--muted);
+      font-size: 11px;
+      font-family: 'DM Sans', sans-serif;
+      cursor: pointer;
+      transition: all 0.2s;
+      letter-spacing: 0.05em;
+    }
+
+    .clear-btn:hover {
+      color: var(--text);
+      border-color: rgba(201,168,76,0.3);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 0.45; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🪷</div>
+      <div>
+        <div class="logo-text">Vaani</div>
+        <div class="logo-tagline">Voice made visible</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="status" id="status">
+        <span class="dot" id="dot"></span>
+        <span id="status-text">Connecting...</span>
+      </div>
+      <button class="mute-btn" id="mute-btn" onclick="toggleMute()">
+        🎙️ <span id="mute-label">Mute</span>
+      </button>
+    </div>
+  </header>
+
+  <div class="speaker-section">
+    <span class="speaker-label">Speaking</span>
+    <span class="speaker-name" id="speaker-name">Unknown</span>
+  </div>
+
+  <div class="caption-main">
+    <div class="history" id="history"></div>
+    <div class="divider"></div>
+    <div class="caption-live">
+      <div class="live-label">
+        <span class="dot pulse" style="background:#9b6fd4"></span>
+        Live Caption
+      </div>
+      <div id="caption-text" class="empty">Waiting for voice...</div>
+      <div class="muted-overlay" id="muted-overlay">
+        <div class="muted-icon">🔇</div>
+        <div class="muted-text">Captions Paused</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="footer-text">Vaani · <span>Voice made visible</span> · For the deaf community</div>
+    <button class="clear-btn" onclick="clearHistory()">Clear history</button>
+  </footer>
+
+</div>
+
+<script>
+  const socket = io();
+  const captionEl = document.getElementById('caption-text');
+  const statusEl = document.getElementById('status');
+  const statusText = document.getElementById('status-text');
+  const dotEl = document.getElementById('dot');
+  const historyEl = document.getElementById('history');
+  const mutedOverlay = document.getElementById('muted-overlay');
+  const muteBtn = document.getElementById('mute-btn');
+  const muteLabel = document.getElementById('mute-label');
+  const speakerName = document.getElementById('speaker-name');
+
+  let isMuted = false;
+  let captionCount = 0;
+
+  // Set speaker name — can be changed later per user
+  const urlParams = new URLSearchParams(window.location.search);
+  speakerName.textContent = urlParams.get('speaker') || 'Speaker';
+
+  socket.on('connect', () => {
+    statusEl.classList.add('live');
+    statusText.textContent = 'Live';
+    dotEl.classList.add('pulse');
+  });
+
+  socket.on('disconnect', () => {
+    statusEl.classList.remove('live');
+    statusText.textContent = 'Disconnected';
+    dotEl.classList.remove('pulse');
+  });
+
+  socket.on('caption', (data) => {
+    if (isMuted) return;
+
+    const current = captionEl.textContent;
+
+    if (current && !captionEl.classList.contains('empty')) {
+      const item = document.createElement('div');
+      item.className = 'history-item';
+      item.innerHTML = `
+        <div class="history-speaker">${speakerName.textContent}</div>
+        <div class="history-text">${current}</div>
+      `;
+      historyEl.appendChild(item);
+      historyEl.scrollTop = historyEl.scrollHeight;
+      captionCount++;
+    }
+
+    captionEl.classList.remove('empty');
+    captionEl.textContent = data.text;
+  });
+
+  function toggleMute() {
+    isMuted = !isMuted;
+    mutedOverlay.classList.toggle('show', isMuted);
+    muteBtn.classList.toggle('muted', isMuted);
+    muteLabel.textContent = isMuted ? 'Unmute' : 'Mute';
+    muteBtn.querySelector('span:first-child') 
+    muteBtn.childNodes[0].textContent = isMuted ? '🔇 ' : '🎙️ ';
+  }
+
+  function clearHistory() {
+    historyEl.innerHTML = '';
+    captionCount = 0;
+  }
+</script>
+</body>
+</html>
